@@ -88,24 +88,25 @@ struct ContentView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 10) {
             Button {
                 store.clearHistory()
             } label: {
-                Label("Clear history", systemImage: "trash")
-                    .font(.system(size: 11))
+                Image(systemName: "trash")
             }
-            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help("Clear history")
             Spacer()
-            Button("Quit Peephole") {
+            Button {
                 NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
             }
-            .font(.system(size: 11))
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .controlSize(.small)
+            .help("Quit Peephole")
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
     }
 }
 
