@@ -14,6 +14,7 @@ struct ContentView: View {
             footer
         }
         .frame(width: 380, height: 520)
+        .glassScrollers()
     }
 
     private var header: some View {
