@@ -71,26 +71,14 @@ fi
 
 echo "✓ built $APP"
 
-# Build a downloadable .dmg (Peephole.app + /Applications drop target).
-STAGE="$(mktemp -d)/dmg"
-mkdir -p "$STAGE"
-cp -R "$APP" "$STAGE/Peephole.app"
-ln -s /Applications "$STAGE/Applications"
-rm -f "$DMG"
-hdiutil create -quiet -volname "Peephole" -srcfolder "$STAGE" \
-  -ov -format UDZO "$DMG"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
-  codesign --force --sign "$SIGN_IDENTITY" "$DMG" || true
-fi
-echo "✓ built $DMG"
-
-# ── Notarize + staple (Developer ID builds only) ──────────────────
-# Submits the signed .app, staples the ticket onto the .app itself
-# (so the installed /Applications copy is Gatekeeper-trusted even
-# offline) and onto the .dmg. Non-fatal: a creds-less or rejected
-# build still completes, just signed-only. (Was dmg-only + would
-# hard-abort the build under `set -e` on any notarization hiccup;
-# this stapls the app too and degrades gracefully.)
+# ── Notarize + staple the .app (Developer ID builds only) ─────────
+# Runs BEFORE the .dmg is built so the disk image wraps an
+# already-stapled app — the copy a user drags to /Applications is
+# Gatekeeper-trusted even offline. We notarize the zipped app, so the
+# ticket rides on the .app; the .dmg is signed but not stapled (its
+# first mount does a one-time online check, fine for a freshly
+# downloaded installer). Non-fatal: a creds-less or rejected build
+# still completes, just signed-only.
 NOTARY_PROFILE="${NOTARY_PROFILE:-Notary}"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
   echo "› notarizing $APP (waits on Apple)…"
@@ -104,9 +92,6 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTIT
       else
         echo "⚠ staple validate failed for $APP"
       fi
-      if [ -f "$DMG" ]; then
-        if xcrun stapler staple "$DMG"; then echo "✓ stapled $DMG"; fi
-      fi
     else
       echo "⚠ stapling failed for $APP"
     fi
@@ -114,3 +99,16 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTIT
     echo "⚠ notarization skipped/failed — $APP signed but not notarized"
   fi
 fi
+
+# Build a downloadable .dmg from the (now-stapled) Peephole.app.
+STAGE="$(mktemp -d)/dmg"
+mkdir -p "$STAGE"
+cp -R "$APP" "$STAGE/Peephole.app"
+ln -s /Applications "$STAGE/Applications"
+rm -f "$DMG"
+hdiutil create -quiet -volname "Peephole" -srcfolder "$STAGE" \
+  -ov -format UDZO "$DMG"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
+  codesign --force --sign "$SIGN_IDENTITY" "$DMG" || true
+fi
+echo "✓ built $DMG"
