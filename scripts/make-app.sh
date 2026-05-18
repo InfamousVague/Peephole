@@ -6,7 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 APP="$ROOT/Peephole.app"
-VERSION="0.1.1"
+SRC_ICON="$ROOT/art/AppIcon-source.png"
+VERSION="0.1.2"
 # Same Developer ID as the sibling apps ("Matt Wisniewski, F6ZAL7ANAD").
 # Override with SIGN_IDENTITY=- for an ad-hoc local build.
 SIGN_IDENTITY="${SIGN_IDENTITY:-0948896DC970503ADEF5B5070E0BB3E9D9047757}"
@@ -20,8 +21,18 @@ echo "› assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-# Executable only — Peephole bundles no icon/resource assets, so there is no
-# SwiftPM resource bundle to flatten (no Bundle.module usage).
+# App icon: source PNG → .iconset → .icns (native sips + iconutil).
+ICONSET="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$ICONSET"
+for spec in "16:16x16" "32:16x16@2x" "32:32x32" "64:32x32@2x" \
+            "128:128x128" "256:128x128@2x" "256:256x256" "512:256x256@2x" \
+            "512:512x512" "1024:512x512@2x"; do
+  px="${spec%%:*}"; name="${spec##*:}"
+  sips -z "$px" "$px" "$SRC_ICON" --out "$ICONSET/icon_${name}.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+
+# Executable (single Mach-O; the menu-bar glyph is an SF Symbol).
 cp "$BIN/Peephole" "$APP/Contents/MacOS/Peephole"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -33,6 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Peephole</string>
   <key>CFBundleIdentifier</key><string>com.mattssoftware.peephole</string>
   <key>CFBundleExecutable</key><string>Peephole</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
