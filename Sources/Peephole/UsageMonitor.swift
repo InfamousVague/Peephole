@@ -191,6 +191,10 @@ enum UsageMonitor {
                 "coreaudiod", "com.apple.cmio.registerassistantservice",
                 "cmio_dalassistant", "UVCAssistant", "appleh13camerad",
                 "avconferenced", "mediaserverd", "com.apple.audio.SandboxHelper",
+                // Modern camera brokers/assistants — infrastructure, never the
+                // real client. Surfacing these as an "app" is a false positive.
+                "cameracaptured", "cmiodalassistants", "cmiodalremoteassistant",
+                "AppleCameraAssistant", "VDCAssistant",
             ]
             if systemDaemons.contains(name) { continue }
             if path.contains(".app/") {

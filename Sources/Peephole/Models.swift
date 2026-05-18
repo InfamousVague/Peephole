@@ -52,7 +52,11 @@ final class PeepholeStore {
         let window = pollWindow
         Task.detached {
             let transitions = UsageMonitor.poll(window: window)
-            await MainActor.run { self.apply(transitions) }
+            let cameraOn = CameraState.isCameraRunningSomewhere()
+            let micOn = MicState.isMicRunningSomewhere()
+            await MainActor.run {
+                self.apply(transitions, cameraRunning: cameraOn, microphoneRunning: micOn)
+            }
         }
     }
 
@@ -62,7 +66,11 @@ final class PeepholeStore {
         focusedKey = nil
     }
 
-    private func apply(_ transitions: [UsageTransition]) {
+    private func apply(
+        _ transitions: [UsageTransition],
+        cameraRunning camOn: Bool,
+        microphoneRunning micOn: Bool
+    ) {
         for t in transitions {
             // De-dupe: each raw log transition is keyed by token+state+second.
             let secs = Int(t.date.timeIntervalSince1970)
@@ -81,8 +89,44 @@ final class PeepholeStore {
             seenTransitionKeys.removeAll(keepingCapacity: true)
         }
 
-        recomputeActive()
+        reconcile(.camera, running: camOn, authToken: "cam:authoritative")
+        reconcile(.microphone, running: micOn, authToken: "mic:authoritative")
+        recomputeActive(cameraOn: camOn, micOn: micOn)
         firstScanDone = true
+    }
+
+    /// The unified log is best-effort and can leave a session "open" (its Stop
+    /// fell outside the poll window, or was never logged). CMIO (camera) and
+    /// CoreAudio (mic) `IsRunningSomewhere` are ground truth — the same signal
+    /// the camera LED / mic indicator reflect — so use them to close stale
+    /// sessions and, conversely, surface a session the log missed.
+    private func reconcile(_ device: UsageDevice, running: Bool, authToken: String) {
+        let hasActive = events.contains { $0.device == device && $0.end == nil }
+        if running {
+            if !hasActive {
+                // Genuinely on but the log didn't attribute it → honest
+                // "Unknown app" session so the UI/history stay truthful.
+                let id = "\(device.rawValue):authoritative:\(Int(Date().timeIntervalSince1970))"
+                events.insert(
+                    UsageEvent(id: id, device: device, app: nil, start: Date(), end: nil),
+                    at: 0
+                )
+                openByToken[authToken] = id
+                if firstScanDone {
+                    Notifier.postActive(key: id, device: device, app: nil)
+                }
+            }
+        } else {
+            // Not running (indicator off) → close any stale sessions.
+            let now = Date()
+            for i in events.indices where events[i].device == device && events[i].end == nil {
+                events[i].end = now
+            }
+            openByToken = openByToken.filter { _, id in
+                guard let e = events.first(where: { $0.id == id }) else { return false }
+                return e.device != device
+            }
+        }
     }
 
     private func open(_ t: UsageTransition) {
@@ -113,9 +157,10 @@ final class PeepholeStore {
         openByToken[t.token] = nil
     }
 
-    private func recomputeActive() {
-        cameraActive = events.contains { $0.device == .camera && $0.isActive }
-        micActive = events.contains { $0.device == .microphone && $0.isActive }
+    private func recomputeActive(cameraOn camOn: Bool, micOn: Bool) {
+        // Both authoritative: camera = CMIO/LED-backed, mic = CoreAudio.
+        cameraActive = camOn
+        micActive = micOn
         let overall = cameraActive || micActive
         if overall != lastActiveOverall {
             lastActiveOverall = overall
