@@ -19,7 +19,7 @@ enum Notifier {
             content.title = "Microphone in use"
             content.body = "\(who) started using the microphone. Click to view in Peephole."
         }
-        content.userInfo = ["peepKey": key]
+        content.userInfo = ["peepKey": key, "suitePane": "peephole", "suiteFocus": key]
         send(id: "peep-\(key)", content: content)
     }
 

@@ -8,12 +8,13 @@ struct ContentView: View {
         VStack(spacing: 0) {
             header
             pills
+            controls
             Divider()
             list
             Divider()
             footer
         }
-        .frame(width: 380, height: 520)
+        .frame(width: 340, height: 540)
         .glassScrollers()
     }
 
@@ -27,7 +28,6 @@ struct ContentView: View {
                 Text("PEEPHOLE")
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(2)
-                LiveDot()
             }
             Spacer()
             Text(store.cameraActive || store.micActive ? "WATCHING" : "ALL CLEAR")
@@ -45,6 +45,36 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            KillSwitch(
+                title: "Mic kill",
+                onIcon: "mic.fill",
+                offIcon: "mic.slash.fill",
+                disabled: store.micDisabled,
+                caption: store.micDisabled
+                    ? "Muted — re-enforced every second"
+                    : "Software mute (sticky)",
+                actionTitle: store.micDisabled ? "Allow mic" : "Disable mic"
+            ) { store.setMicDisabled(!store.micDisabled) }
+
+            KillSwitch(
+                title: "Camera kill",
+                onIcon: "video.fill",
+                offIcon: "video.slash.fill",
+                disabled: store.cameraDisabled,
+                caption: store.cameraDisabled
+                    ? (store.cameraUnknownGrabber
+                        ? "On — camera in use, app unidentified"
+                        : "Quits any app that opens the camera")
+                    : "Reactive — no profile, instant",
+                actionTitle: store.cameraDisabled ? "Allow camera" : "Disable camera"
+            ) { store.setCameraDisabled(!store.cameraDisabled) }
+        }
+        .padding(.horizontal, 12)
         .padding(.bottom, 10)
     }
 
@@ -137,6 +167,51 @@ private struct StatusPill: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(active ? Color.red.opacity(0.35) : Color.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+}
+
+private struct KillSwitch: View {
+    let title: String
+    let onIcon: String
+    let offIcon: String
+    let disabled: Bool
+    let caption: String
+    let actionTitle: String
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: disabled ? offIcon : onIcon)
+                    .font(.system(size: 12, weight: .medium))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(disabled ? "OFF" : "ON")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            }
+            .foregroundStyle(disabled ? Color.orange : Color.secondary)
+
+            Text(caption)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+
+            Button(actionTitle, action: action)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(disabled ? Color.orange.opacity(0.10) : Color.secondary.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(disabled ? Color.orange.opacity(0.30) : Color.white.opacity(0.06), lineWidth: 1)
         )
     }
 }

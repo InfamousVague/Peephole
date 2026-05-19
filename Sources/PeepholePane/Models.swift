@@ -22,6 +22,18 @@ final class PeepholeStore {
     var micActive = false
     var lastError: String?
 
+    /// Kill-switch state.
+    /// `micDisabled` — real, sticky software mute (CoreAudio), re-enforced.
+    /// `cameraDisabled` — armed reactive kill: any app that opens the camera
+    /// while on is terminated. `cameraUnknownGrabber` — camera is on but
+    /// Peephole couldn't attribute an app, so it deliberately killed nothing.
+    var micDisabled = false
+    var cameraDisabled = false
+    var cameraUnknownGrabber = false
+
+    @ObservationIgnored private let defaults = UserDefaults.standard
+    @ObservationIgnored private var enforceTimer: Timer?
+
     /// Event id the user asked to jump to (set from a notification click).
     var focusedKey: String?
 
@@ -41,6 +53,11 @@ final class PeepholeStore {
     private var pollWindow: TimeInterval { pollInterval + 6 }
 
     func start() {
+        // Restore the persisted kill-switch state.
+        micDisabled = defaults.bool(forKey: "micDisabled")
+        cameraDisabled = defaults.bool(forKey: "cameraKillArmed")
+        if micDisabled { MicControl.apply(muted: true) }
+        updateEnforce()
         refresh()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
@@ -57,6 +74,63 @@ final class PeepholeStore {
             await MainActor.run {
                 self.apply(transitions, cameraRunning: cameraOn, microphoneRunning: micOn)
             }
+        }
+    }
+
+    // MARK: - Kill switches
+
+    func setMicDisabled(_ on: Bool) {
+        micDisabled = on
+        defaults.set(on, forKey: "micDisabled")
+        MicControl.apply(muted: on)
+        updateEnforce()
+    }
+
+    /// Instant — no profile, nothing to approve. While armed, any app that
+    /// opens the camera is terminated (reactive; honest ceilings in the UI).
+    func setCameraDisabled(_ on: Bool) {
+        cameraDisabled = on
+        defaults.set(on, forKey: "cameraKillArmed")
+        if on {
+            enforceTick()               // act now, don't wait for the 1 s timer
+        } else {
+            CameraEnforcer.reset()
+            cameraUnknownGrabber = false
+        }
+        updateEnforce()
+    }
+
+    private func updateEnforce() {
+        if micDisabled || cameraDisabled {
+            if enforceTimer == nil {
+                enforceTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                    Task { @MainActor in self?.enforceTick() }
+                }
+            }
+        } else {
+            enforceTimer?.invalidate()
+            enforceTimer = nil
+        }
+    }
+
+    /// One enforcement pass: re-mute the mic, and reactively kill any app
+    /// currently using the camera.
+    private func enforceTick() {
+        if micDisabled { MicControl.apply(muted: true) }
+
+        guard cameraDisabled else { cameraUnknownGrabber = false; return }
+        guard CameraState.isCameraRunningSomewhere() else {
+            cameraUnknownGrabber = false
+            return
+        }
+        let activeCam = events.filter { $0.device == .camera && $0.isActive }
+        let targets = Set(activeCam.compactMap { $0.app })
+        if targets.isEmpty {
+            // Camera is on but the grabber can't be named → kill nothing.
+            cameraUnknownGrabber = !activeCam.isEmpty
+        } else {
+            cameraUnknownGrabber = false
+            CameraEnforcer.enforce(targets: targets)
         }
     }
 

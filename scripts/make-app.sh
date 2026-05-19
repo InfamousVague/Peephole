@@ -35,6 +35,17 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # Executable (single Mach-O; the menu-bar glyph is an SF Symbol).
 cp "$BIN/Peephole" "$APP/Contents/MacOS/Peephole"
 
+# ── Embed + (below) sign the SuiteKit contract and this
+# app's pane dylib so the MattsSoftware launcher can load
+# the SAME code out of this installed .app. rpath lets the
+# bundled exe find them under Contents/Frameworks.
+mkdir -p "$APP/Contents/Frameworks"
+cp "$BIN/libSuiteKit.dylib" "$APP/Contents/Frameworks/"
+cp "$BIN/libPeepholePane.dylib" "$APP/Contents/Frameworks/"
+if [ -d "$BIN/PeepholePane_PeepholePane.bundle" ]; then cp -R "$BIN/PeepholePane_PeepholePane.bundle" "$APP/Contents/Frameworks/"; fi
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Peephole" 2>/dev/null || true
+
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -59,6 +70,10 @@ PLIST
 # Sign with the Developer ID (hardened runtime, distribution-ready).
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
   # Inside-out, no --deep.
+  codesign --force --options runtime --timestamp \
+    --sign "$SIGN_IDENTITY" "$APP/Contents/Frameworks/libSuiteKit.dylib"
+  codesign --force --options runtime --timestamp \
+    --sign "$SIGN_IDENTITY" "$APP/Contents/Frameworks/libPeepholePane.dylib"
   codesign --force --options runtime --timestamp \
     --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/Peephole"
   codesign --force --options runtime --timestamp \
