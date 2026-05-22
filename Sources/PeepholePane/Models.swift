@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AppKit
+import PeepholeShared
 
 /// One camera/mic usage session in the history list.
 struct UsageEvent: Identifiable, Hashable {
@@ -20,6 +21,10 @@ final class PeepholeStore {
     var events: [UsageEvent] = []
     var cameraActive = false
     var micActive = false
+    /// Connected video devices + their quick stats (refreshed each poll).
+    var cameras: [CameraInfo] = []
+    /// Connected input-capable audio devices + their quick stats.
+    var microphones: [MicInfo] = []
     var lastError: String?
 
     /// Kill-switch state.
@@ -53,9 +58,14 @@ final class PeepholeStore {
     private var pollWindow: TimeInterval { pollInterval + 6 }
 
     func start() {
-        // Restore the persisted kill-switch state.
+        // Camera kill is intentionally session-only — a destructive,
+        // kill-other-processes feature must never silently re-arm at
+        // launch. Mic mute is non-destructive, so it stays persisted.
+        // Also purge legacy persisted keys from older builds.
+        defaults.removeObject(forKey: "cameraKillArmed")
+        defaults.removeObject(forKey: "cameraDisabledIntent")
         micDisabled = defaults.bool(forKey: "micDisabled")
-        cameraDisabled = defaults.bool(forKey: "cameraKillArmed")
+        cameraDisabled = false
         if micDisabled { MicControl.apply(muted: true) }
         updateEnforce()
         refresh()
@@ -71,8 +81,12 @@ final class PeepholeStore {
             let transitions = UsageMonitor.poll(window: window)
             let cameraOn = CameraState.isCameraRunningSomewhere()
             let micOn = MicState.isMicRunningSomewhere()
+            let cameraList = CameraDevices.all()
+            let micList = MicDevices.all()
             await MainActor.run {
                 self.apply(transitions, cameraRunning: cameraOn, microphoneRunning: micOn)
+                self.cameras = cameraList
+                self.microphones = micList
             }
         }
     }
@@ -89,8 +103,7 @@ final class PeepholeStore {
     /// Instant — no profile, nothing to approve. While armed, any app that
     /// opens the camera is terminated (reactive; honest ceilings in the UI).
     func setCameraDisabled(_ on: Bool) {
-        cameraDisabled = on
-        defaults.set(on, forKey: "cameraKillArmed")
+        cameraDisabled = on     // intentionally not persisted; see start()
         if on {
             enforceTick()               // act now, don't wait for the 1 s timer
         } else {
@@ -240,5 +253,27 @@ final class PeepholeStore {
             lastActiveOverall = overall
             onActiveChange?(overall)
         }
+        publishSharedSnapshot()
+    }
+
+    /// Publish a compact camera/mic-activity snapshot to the App
+    /// Group container so the widget's TimelineProvider can render
+    /// the latest state. SharedPeepholeStore debounces WidgetKit
+    /// reloads internally.
+    private func publishSharedSnapshot() {
+        let activeCamNames = cameras
+            .filter { $0.isRunning }
+            .map { $0.name }
+        let activeMicNames = microphones
+            .filter { $0.isRunning }
+            .map { $0.name }
+        let snap = SharedPeephole(
+            cameraActive: cameraActive,
+            micActive: micActive,
+            activeCameras: activeCamNames,
+            activeMics: activeMicNames,
+            sampledAt: Date()
+        )
+        SharedPeepholeStore.write(snap)
     }
 }

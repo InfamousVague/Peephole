@@ -7,12 +7,16 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .frame(height: 46)
             pills
             controls
+            camerasSection
+            microphonesSection
             Divider()
             list
             Divider()
             footer
+                .frame(height: 46)
         }
         .frame(width: 340, height: 540)
         .glassScrollers()
@@ -76,6 +80,38 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
+    }
+
+    private var camerasSection: some View {
+        Group {
+            if !store.cameras.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CAMERAS")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1.5)
+                        .foregroundStyle(.secondary)
+                    ForEach(store.cameras) { CameraRow(cam: $0) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    private var microphonesSection: some View {
+        Group {
+            if !store.microphones.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("MICROPHONES")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1.5)
+                        .foregroundStyle(.secondary)
+                    ForEach(store.microphones) { MicRow(mic: $0) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+            }
+        }
     }
 
     private var list: some View {
@@ -161,11 +197,11 @@ private struct StatusPill: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(active ? Color.red.opacity(0.12) : Color.secondary.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(active ? Color.red.opacity(0.35) : Color.white.opacity(0.06), lineWidth: 1)
         )
     }
@@ -206,11 +242,11 @@ private struct KillSwitch: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(disabled ? Color.orange.opacity(0.10) : Color.secondary.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(disabled ? Color.orange.opacity(0.30) : Color.white.opacity(0.06), lineWidth: 1)
         )
     }
@@ -293,5 +329,74 @@ private struct LiveDot: View {
             .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: on)
             .onAppear { on = true }
             .help("Live — polling the unified log every few seconds")
+    }
+}
+
+private struct CameraRow: View {
+    let cam: CameraInfo
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(cam.isRunning ? Color.red : Color.secondary.opacity(0.4))
+                .frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(cam.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            if cam.isRunning {
+                Text("in use")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var subtitle: String {
+        var parts: [String] = [cam.transport]
+        if let m = cam.manufacturer, !m.isEmpty { parts.append(m) }
+        if let r = cam.resolutionLabel { parts.append(r) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+private struct MicRow: View {
+    let mic: MicInfo
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(mic.isRunning ? Color.red : Color.secondary.opacity(0.4))
+                .frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(mic.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            if mic.isRunning {
+                Text("in use")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var subtitle: String {
+        var parts: [String] = [mic.transport]
+        if let m = mic.manufacturer, !m.isEmpty { parts.append(m) }
+        if let c = mic.channelsLabel { parts.append(c) }
+        if let s = mic.sampleRateLabel { parts.append(s) }
+        return parts.joined(separator: " · ")
     }
 }

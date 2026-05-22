@@ -1,0 +1,40 @@
+name: PeepholeWidgets
+options:
+  bundleIdPrefix: com.mattssoftware.peephole
+  deploymentTarget:
+    macOS: "14.0"
+  developmentLanguage: en
+
+packages:
+  Peephole:
+    path: ..
+
+targets:
+  PeepholeWidgets:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources
+    info:
+      path: Supporting Files/Info.plist
+      properties:
+        CFBundleDisplayName: Peephole Status
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mattssoftware.peephole.widget
+        PRODUCT_NAME: PeepholeWidgets
+        CODE_SIGN_ENTITLEMENTS: Supporting Files/PeepholeWidgets.entitlements
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: F6ZAL7ANAD
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "0.2.0"
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: Peephole
+        product: PeepholeShared

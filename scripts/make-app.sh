@@ -46,6 +46,37 @@ if [ -d "$BIN/PeepholePane_PeepholePane.bundle" ]; then cp -R "$BIN/PeepholePane
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Peephole" 2>/dev/null || true
 
 
+# ── Widget extension (.appex) ─────────────────────────────────────
+# Built by Xcode, not SwiftPM (SR-14944). Widget consumes
+# PeepholeShared via local-package dep so it shares the App Group
+# + SharedPeephole model with the host.
+if [ "${SKIP_WIDGET:-0}" != "1" ]; then
+  if command -v xcodegen >/dev/null; then
+    ( cd "$ROOT/Widget" && xcodegen generate --quiet )
+  fi
+  echo "› xcodebuild PeepholeWidgets.appex"
+  XCB_OUT="$ROOT/.build/xcode"
+  xcodebuild \
+    -project "$ROOT/Widget/PeepholeWidgets.xcodeproj" \
+    -scheme PeepholeWidgets \
+    -configuration Release \
+    -derivedDataPath "$XCB_OUT" \
+    MARKETING_VERSION="$VERSION" \
+    CURRENT_PROJECT_VERSION="$VERSION" \
+    CODE_SIGN_IDENTITY="-" \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGNING_ALLOWED=NO \
+    -quiet \
+    build
+  WIDGET_APPEX="$XCB_OUT/Build/Products/Release/PeepholeWidgets.appex"
+  if [ -d "$WIDGET_APPEX" ]; then
+    mkdir -p "$APP/Contents/PlugIns"
+    rm -rf "$APP/Contents/PlugIns/PeepholeWidgets.appex"
+    ditto "$WIDGET_APPEX" "$APP/Contents/PlugIns/PeepholeWidgets.appex"
+    echo "✓ embedded $APP/Contents/PlugIns/PeepholeWidgets.appex"
+  fi
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -67,16 +98,28 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Sign with the Developer ID (hardened runtime, distribution-ready).
+HOST_ENT="$ROOT/Peephole.entitlements"
+WIDGET_ENT="$ROOT/Widget/Supporting Files/PeepholeWidgets.entitlements"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
-  # Inside-out, no --deep.
   codesign --force --options runtime --timestamp \
     --sign "$SIGN_IDENTITY" "$APP/Contents/Frameworks/libSuiteKit.dylib"
   codesign --force --options runtime --timestamp \
     --sign "$SIGN_IDENTITY" "$APP/Contents/Frameworks/libPeepholePane.dylib"
+  if [ -d "$APP/Contents/PlugIns/PeepholeWidgets.appex" ]; then
+    codesign --force --options runtime --timestamp \
+      --entitlements "$WIDGET_ENT" \
+      --sign "$SIGN_IDENTITY" \
+      "$APP/Contents/PlugIns/PeepholeWidgets.appex/Contents/MacOS/PeepholeWidgets"
+    codesign --force --options runtime --timestamp \
+      --entitlements "$WIDGET_ENT" \
+      --sign "$SIGN_IDENTITY" \
+      "$APP/Contents/PlugIns/PeepholeWidgets.appex"
+  fi
   codesign --force --options runtime --timestamp \
+    --entitlements "$HOST_ENT" \
     --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/Peephole"
   codesign --force --options runtime --timestamp \
+    --entitlements "$HOST_ENT" \
     --sign "$SIGN_IDENTITY" "$APP"
   codesign --verify --strict --verbose=1 "$APP" && echo "✓ signed: $SIGN_IDENTITY"
 else
