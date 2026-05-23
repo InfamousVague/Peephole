@@ -26,10 +26,18 @@ struct PeepholeWidgetView: View {
     let entry: PeepholeEntry
 
     var body: some View {
-        switch family {
-        case .systemSmall:  SmallView(entry: entry)
-        case .systemMedium: MediumView(entry: entry)
-        default:            SmallView(entry: entry)
+        Group {
+            switch family {
+            case .systemSmall:  SmallView(entry: entry)
+            case .systemMedium: MediumView(entry: entry)
+            default:            SmallView(entry: entry)
+            }
         }
+        // Desktop-widget tap → MattsSoftware launcher's URL
+        // handler pops its popover already switched to the
+        // Peephole pane. Without this hook tapping the widget
+        // launches Peephole's standalone bundle id, SuiteGuard
+        // exits in merged mode, and nothing visible happens.
+        .widgetURL(URL(string: "mattssoftware://peephole"))
     }
 }
