@@ -1,4 +1,3 @@
-import CoreMedia
 import CoreMediaIO
 import Foundation
 
@@ -9,16 +8,20 @@ struct CameraInfo: Identifiable, Hashable {
     let manufacturer: String?
     let transport: String         // "Built-in", "USB", "Virtual", etc.
     let isRunning: Bool           // matches CameraState's authoritative signal
-    let maxWidth: Int32           // best supported, 0 if unknown
-    let maxHeight: Int32
-
-    var hasMaxRes: Bool { maxWidth > 0 && maxHeight > 0 }
-    var resolutionLabel: String? {
-        hasMaxRes ? "\(maxWidth)×\(maxHeight)" : nil
-    }
 }
 
 /// Entitlement-free per-camera inspection via CoreMediaIO.
+///
+/// Hard-learned constraint: enumerating CMIO **streams** or reading
+/// `kCMIOStreamPropertyFormatDescriptions` per poll can wake/hold the
+/// underlying device (notably Continuity Camera through `cameracaptured`)
+/// and starve other apps from acquiring it. We therefore:
+///   • read only cheap, scalar device properties (no streams, no formats),
+///   • cache the static ones (name, manufacturer, transport) once per
+///     device id and reuse forever, and
+///   • re-read only `IsRunningSomewhere` on each tick — the same single
+///     property `CameraState` already polled safely before this file
+///     existed.
 enum CameraDevices {
     static func all() -> [CameraInfo] { deviceIDs().map(info(for:)) }
 
@@ -44,7 +47,34 @@ enum CameraDevices {
 
     // MARK: per device
 
+    private struct Static {
+        let name: String
+        let manufacturer: String?
+        let transport: String
+    }
+
+    nonisolated(unsafe) private static var cache: [CMIOObjectID: Static] = [:]
+    private static let cacheLock = NSLock()
+
     private static func info(for dev: CMIOObjectID) -> CameraInfo {
+        let s = cachedStatic(for: dev)
+        let running = (uint32(
+            dev, CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere)
+        ) ?? 0) != 0
+        return CameraInfo(
+            id: dev, name: s.name, manufacturer: s.manufacturer,
+            transport: s.transport, isRunning: running
+        )
+    }
+
+    private static func cachedStatic(for dev: CMIOObjectID) -> Static {
+        cacheLock.lock()
+        if let s = cache[dev] {
+            cacheLock.unlock()
+            return s
+        }
+        cacheLock.unlock()
+        // Read outside the lock so a slow CMIO call can't block other callers.
         let name = cfString(dev, CMIOObjectPropertySelector(kCMIOObjectPropertyName))
             ?? "Camera \(dev)"
         let manufacturer = cfString(
@@ -53,66 +83,11 @@ enum CameraDevices {
         let transport = transportLabel(
             uint32(dev, CMIOObjectPropertySelector(kCMIODevicePropertyTransportType))
         )
-        let running = (uint32(
-            dev, CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere)
-        ) ?? 0) != 0
-        let (w, h) = maxDimensions(for: dev)
-        return CameraInfo(
-            id: dev, name: name, manufacturer: manufacturer,
-            transport: transport, isRunning: running,
-            maxWidth: w, maxHeight: h
-        )
-    }
-
-    private static func maxDimensions(for dev: CMIOObjectID) -> (Int32, Int32) {
-        var addr = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyStreams),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
-        )
-        var size: UInt32 = 0
-        guard CMIOObjectGetPropertyDataSize(dev, &addr, 0, nil, &size) == 0,
-              size > 0 else { return (0, 0) }
-        let n = Int(size) / MemoryLayout<CMIOObjectID>.size
-        var streams = [CMIOObjectID](repeating: 0, count: n)
-        var used: UInt32 = 0
-        guard CMIOObjectGetPropertyData(dev, &addr, 0, nil, size, &used, &streams) == 0
-        else { return (0, 0) }
-
-        var bestArea: Int64 = 0
-        var bestW: Int32 = 0
-        var bestH: Int32 = 0
-        for s in streams {
-            for fmt in formats(for: s) {
-                let d = CMVideoFormatDescriptionGetDimensions(fmt)
-                let area = Int64(d.width) * Int64(d.height)
-                if area > bestArea {
-                    bestArea = area; bestW = d.width; bestH = d.height
-                }
-            }
-        }
-        return (bestW, bestH)
-    }
-
-    private static func formats(for stream: CMIOObjectID) -> [CMFormatDescription] {
-        var addr = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIOStreamPropertyFormatDescriptions),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
-        )
-        var size: UInt32 = 0
-        guard CMIOObjectGetPropertyDataSize(stream, &addr, 0, nil, &size) == 0,
-              size > 0 else { return [] }
-        var cf: Unmanaged<CFArray>?
-        var used: UInt32 = 0
-        guard CMIOObjectGetPropertyData(stream, &addr, 0, nil, size, &used, &cf) == 0,
-              let arr = cf?.takeRetainedValue() else { return [] }
-        var out: [CMFormatDescription] = []
-        for i in 0..<CFArrayGetCount(arr) {
-            guard let raw = CFArrayGetValueAtIndex(arr, i) else { continue }
-            out.append(unsafeBitCast(raw, to: CMFormatDescription.self))
-        }
-        return out
+        let s = Static(name: name, manufacturer: manufacturer, transport: transport)
+        cacheLock.lock()
+        cache[dev] = s
+        cacheLock.unlock()
+        return s
     }
 
     // MARK: helpers

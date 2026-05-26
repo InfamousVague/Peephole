@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import AppKit
 import PeepholeShared
+import SuiteKit
 
 /// One camera/mic usage session in the history list.
 struct UsageEvent: Identifiable, Hashable {
@@ -25,6 +26,9 @@ final class PeepholeStore {
     var cameras: [CameraInfo] = []
     /// Connected input-capable audio devices + their quick stats.
     var microphones: [MicInfo] = []
+    /// True when the legacy `allowCamera=false` profile (from older Peephole
+    /// builds) is still installed and blocking cameras system-wide.
+    var legacyCameraProfileInstalled = false
     var lastError: String?
 
     /// Kill-switch state.
@@ -68,10 +72,42 @@ final class PeepholeStore {
         cameraDisabled = false
         if micDisabled { MicControl.apply(muted: true) }
         updateEnforce()
+        // One-shot AVFoundation discovery to refresh the system's view of
+        // available cameras. Best-effort; runs off the main actor.
+        Task.detached { CameraWakeup.nudge() }
+        refreshLegacyProfileState()
         refresh()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
+        }
+    }
+
+    /// Detect (off main) whether the legacy `allowCamera=false` profile is
+    /// installed and blocking cameras system-wide.
+    func refreshLegacyProfileState() {
+        Task.detached {
+            let installed = LegacyProfileCleaner.isInstalled()
+            await MainActor.run { self.legacyCameraProfileInstalled = installed }
+        }
+    }
+
+    /// One-click removal — prompts the user for an admin password via the
+    /// standard `do shell script with administrator privileges` flow, then
+    /// re-checks. Failures (incl. user cancel) surface through `lastError`.
+    func removeLegacyCameraProfile() {
+        Task.detached {
+            do {
+                try LegacyProfileCleaner.remove()
+                let stillInstalled = LegacyProfileCleaner.isInstalled()
+                await MainActor.run {
+                    self.legacyCameraProfileInstalled = stillInstalled
+                }
+            } catch {
+                await MainActor.run {
+                    self.lastError = "Couldn't remove legacy camera profile: \(error.localizedDescription)"
+                }
+            }
         }
     }
 
@@ -254,6 +290,33 @@ final class PeepholeStore {
             onActiveChange?(overall)
         }
         publishSharedSnapshot()
+        publishLiveActivity()
+    }
+
+    /// Surface camera/mic state in the system-wide island (Halo).
+    /// We only publish when SOMETHING is active — an "ALL CLEAR"
+    /// pill would be noise. Priority 80: high enough to displace
+    /// Now Playing / Espresso when a camera or mic light turns
+    /// on, because that's a privacy moment the user wants to see.
+    private func publishLiveActivity() {
+        guard cameraActive || micActive else {
+            SuiteLiveActivityStore.clear("peephole")
+            return
+        }
+        let label: String
+        switch (cameraActive, micActive) {
+        case (true, true):   label = "Cam · Mic"
+        case (true, false):  label = "Camera"
+        case (false, true):  label = "Mic"
+        case (false, false): label = ""
+        }
+        let symbol = cameraActive ? "camera.fill" : "mic.fill"
+        let payload = SuiteLiveActivityStore.Payload(
+            compactLeadingSymbol: symbol,
+            compactTrailingText: label,
+            tintHex: "#FF453A",     // system red — "active recording" is the universal signal
+            priority: 80)
+        try? SuiteLiveActivityStore.write(payload, for: "peephole")
     }
 
     /// Publish a compact camera/mic-activity snapshot to the App

@@ -8,6 +8,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             header
                 .frame(height: 46)
+            legacyProfileBanner
             pills
             controls
             camerasSection
@@ -80,6 +81,43 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
+    }
+
+    /// Loud, one-click recovery for the legacy `allowCamera=false` profile
+    /// older Peephole builds asked the user to install. Until removed, every
+    /// camera on the system is invisible to every app.
+    private var legacyProfileBanner: some View {
+        Group {
+            if store.legacyCameraProfileInstalled {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.yellow)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Legacy camera-block profile is installed")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Cameras are invisible to every app until it's removed.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 6)
+                    Button("Remove") { store.removeLegacyCameraProfile() }
+                        .controlSize(.small)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.yellow.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.yellow.opacity(0.35), lineWidth: 1)
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+        }
     }
 
     private var camerasSection: some View {
@@ -361,7 +399,6 @@ private struct CameraRow: View {
     private var subtitle: String {
         var parts: [String] = [cam.transport]
         if let m = cam.manufacturer, !m.isEmpty { parts.append(m) }
-        if let r = cam.resolutionLabel { parts.append(r) }
         return parts.joined(separator: " · ")
     }
 }
