@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 APP="$ROOT/Peephole.app"
 SRC_ICON="$ROOT/art/AppIcon-source.png"
-VERSION="1.1.1"
+VERSION="1.1.2"
 # Same Developer ID as the sibling apps ("Matt Wisniewski, F6ZAL7ANAD").
 # Override with SIGN_IDENTITY=- for an ad-hoc local build.
 SIGN_IDENTITY="${SIGN_IDENTITY:-0948896DC970503ADEF5B5070E0BB3E9D9047757}"
